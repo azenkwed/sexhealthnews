@@ -35,26 +35,55 @@ if not "!DB_URL!"=="" (
 
 echo [*] Checking PostgreSQL at !DB_HOST!:!DB_PORT!...
 set "PG_READY=0"
-for /L %%i in (1,1,30) do (
-    if !PG_READY!==0 (
-        powershell -NoProfile -Command ^
-            "try { $t=New-Object Net.Sockets.TcpClient; $t.Connect('!DB_HOST!', !DB_PORT!); $t.Close(); exit 0 } catch { exit 1 }" >nul 2>&1
-        if !errorlevel!==0 (
-            set "PG_READY=1"
-        ) else (
-            echo     Waiting for PostgreSQL... ^(attempt %%i/30^)
-            timeout /t 2 /nobreak >nul
-        )
-    )
+powershell -NoProfile -Command ^
+    "try { $t=New-Object Net.Sockets.TcpClient; $t.Connect('!DB_HOST!', !DB_PORT!); $t.Close(); exit 0 } catch { exit 1 }" >nul 2>&1
+if !errorlevel!==0 (
+    set "PG_READY=1"
 )
 
 if !PG_READY!==0 (
-    echo [!] PostgreSQL is not reachable at !DB_HOST!:!DB_PORT! after 30 attempts.
-    echo     Run 'docker-compose up -d' to start PostgreSQL, or check your DATABASE_URL in .env
-    pause
-    exit /b 1
+    echo [!] PostgreSQL is not running.
+    echo [*] Attempting to start PostgreSQL with Docker...
+
+    if not exist start-postgres.bat (
+        echo [!] start-postgres.bat not found in current directory.
+        pause
+        exit /b 1
+    )
+
+    call start-postgres.bat
+    if !errorlevel! neq 0 (
+        echo [!] Failed to start PostgreSQL.
+        pause
+        exit /b 1
+    )
+
+    echo.
+    echo [*] Verifying PostgreSQL is ready...
+    set "PG_READY=0"
+    for /L %%i in (1,1,30) do (
+        if !PG_READY!==0 (
+            powershell -NoProfile -Command ^
+                "try { $t=New-Object Net.Sockets.TcpClient; $t.Connect('!DB_HOST!', !DB_PORT!); $t.Close(); exit 0 } catch { exit 1 }" >nul 2>&1
+            if !errorlevel!==0 (
+                set "PG_READY=1"
+            ) else (
+                echo     Waiting for PostgreSQL... ^(attempt %%i/30^)
+                timeout /t 2 /nobreak >nul
+            )
+        )
+    )
+
+    if !PG_READY!==0 (
+        echo [!] PostgreSQL failed to become ready after startup.
+        pause
+        exit /b 1
+    )
+) else (
+    echo [OK] PostgreSQL is ready.
 )
-echo [OK] PostgreSQL is ready.
+
+echo.
 
 :: Create virtual environment if it doesn't exist
 if not exist .venv (

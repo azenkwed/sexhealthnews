@@ -22,19 +22,38 @@ DB_PORT="${DB_PORT:-5432}"
 
 # Check if PostgreSQL is ready
 echo "[*] Checking PostgreSQL at $DB_HOST:$DB_PORT..."
-MAX_RETRIES=30
-i=0
-until pg_isready -h "$DB_HOST" -p "$DB_PORT" -q 2>/dev/null; do
-    i=$((i + 1))
-    if [ $i -ge $MAX_RETRIES ]; then
-        echo "[!] PostgreSQL is not reachable at $DB_HOST:$DB_PORT after ${MAX_RETRIES} attempts."
-        echo "    Run 'docker-compose up -d' to start PostgreSQL, or check your DATABASE_URL in .env"
+if ! pg_isready -h "$DB_HOST" -p "$DB_PORT" -q 2>/dev/null; then
+    echo "[!] PostgreSQL is not running."
+    echo "[*] Attempting to start PostgreSQL with Docker..."
+
+    # Check if start-postgres.sh exists
+    if [ ! -f "start-postgres.sh" ]; then
+        echo "[!] start-postgres.sh not found in current directory."
         exit 1
     fi
-    echo "    Waiting for PostgreSQL... (attempt $i/$MAX_RETRIES)"
-    sleep 2
-done
-echo "[✓] PostgreSQL is ready."
+
+    # Run start-postgres.sh
+    ./start-postgres.sh
+
+    # Verify PostgreSQL is ready after startup
+    echo ""
+    echo "[*] Verifying PostgreSQL is ready..."
+    MAX_RETRIES=30
+    i=0
+    until pg_isready -h "$DB_HOST" -p "$DB_PORT" -q 2>/dev/null; do
+        i=$((i + 1))
+        if [ $i -ge $MAX_RETRIES ]; then
+            echo "[!] PostgreSQL failed to become ready after startup."
+            exit 1
+        fi
+        echo "    Waiting for PostgreSQL... (attempt $i/$MAX_RETRIES)"
+        sleep 2
+    done
+else
+    echo "[✓] PostgreSQL is ready."
+fi
+
+echo ""
 
 # Create virtual environment if it doesn't exist
 VENV=".venv"
