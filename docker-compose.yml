@@ -21,7 +21,7 @@ services:
   # pgAdmin — local DB browser, equivalent to Supabase Studio
   # Open http://localhost:5050 — login: admin@sexhealthnews.local / admin
   pgadmin:
-    image: dpage/pgadmin4:latest
+    image: dpage/pgadmin4:latest-alpine
     restart: unless-stopped
     ports:
       - "5050:80"
