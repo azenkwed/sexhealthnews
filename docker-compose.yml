@@ -1,5 +1,3 @@
-version: "3.8"
-
 services:
   db:
     image: postgres:17-alpine
@@ -21,7 +19,7 @@ services:
   # pgAdmin — local DB browser, equivalent to Supabase Studio
   # Open http://localhost:5050 — login: admin@sexhealthnews.local / admin
   pgadmin:
-    image: dpage/pgadmin4:latest-alpine
+    image: dpage/pgadmin4:8
     restart: unless-stopped
     ports:
       - "5050:80"
