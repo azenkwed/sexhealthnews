@@ -4,27 +4,58 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Running the app
 
+### First-time setup
+
 ```bash
-make install   # create .venv and install dependencies (one-time setup)
-make run       # recommended — auto-kills port 8000 then starts via .venv
-make admin     # start admin dashboard on port 8001 (127.0.0.1 only)
+# 1. Copy environment config
+cp .env.example .env
+# Edit .env and add your ANTHROPIC_API_KEY
+
+# 2. Start PostgreSQL (required)
+./start-postgres.sh    # or start-postgres.bat on Windows
+
+# 3. Start the app (in another terminal)
+make run               # recommended — checks PostgreSQL, creates venv, installs deps
+# or
+./run.sh               # Linux / macOS
+run.bat                # Windows
 ```
 
-Or just run `./run.sh` (macOS/Linux) / `run.bat` (Windows) — both auto-create `.venv` and install deps if needed.
-
-Requires a `.env` file (copy from `.env.example`). `ANTHROPIC_API_KEY` and `JWT_SECRET_KEY` are required; all other keys are optional. The database (`data/sexhealthnews.db`) is created automatically on first startup.
+### Daily development
 
 ```bash
-make trigger   # manually fire the collection pipeline
+make run               # auto-reloads main app on file changes (port 8000)
+make admin             # auto-reloads admin dashboard (port 8001, localhost only)
+make trigger           # manually fire the collection pipeline
 ```
 
-Set `DISABLE_NEWSAPI=true` in `.env` (or via `fly secrets set`) to skip the NewsAPI collector during testing — RSS feeds still run normally. Unset or set to `false` to re-enable.
+### Configuration
 
+Requires a `.env` file (copy from `.env.example`):
+
+```env
+# Required
+ANTHROPIC_API_KEY=sk-ant-...
+DATABASE_URL=postgresql+asyncpg://postgres:postgres@localhost:5432/sexhealthnews
+
+# Optional
+NEWSAPI_KEY=...        # Adds keyword search
+RESEND_API_KEY=...     # Email verification and password reset
+```
+
+For testing without NewsAPI:
 ```bash
-# Admin app — served on port 8001 (not publicly exposed)
-http://localhost:8001/                     # dashboard
-http://localhost:8001/newsletter-preview   # daily digest preview
-http://localhost:8001/newsletter-preview?frequency=weekly
+DISABLE_NEWSAPI=true   # Skip NewsAPI collector, RSS feeds still run
+```
+
+### Admin dashboard URLs
+
+```
+http://127.0.0.1:8001/                     # main dashboard
+http://127.0.0.1:8001/articles             # article list & editor
+http://127.0.0.1:8001/newsletter-preview   # daily digest preview
+http://127.0.0.1:8001/newsletter-preview?frequency=weekly
+http://localhost:5050                      # pgAdmin database browser
 ```
 
 ## Architecture

@@ -32,37 +32,70 @@ An automated news archive that continuously collects articles from global source
 
 ## Quick start
 
+### Prerequisites
+- Python 3.10 or later
+- Docker (for PostgreSQL)
+- Anthropic API key ([console.anthropic.com](https://console.anthropic.com))
+
+### Setup (first time)
+
 ```bash
 # 1. Clone and enter the project
 cd sexhealthnews
 
-# 2. Configure API keys
+# 2. Copy environment template
 cp .env.example .env
-# Edit .env — add ANTHROPIC_API_KEY (required) and NEWSAPI_KEY (optional)
+# Edit .env and add your ANTHROPIC_API_KEY (required)
 
-# 3. Run
-run.bat           # Windows
-./run.sh          # Linux / macOS
-make run          # any platform with make
+# 3. Start PostgreSQL (in one terminal)
+./start-postgres.sh      # Linux / macOS
+start-postgres.bat       # Windows
+
+# 4. Start the app (in another terminal)
+./run.sh                 # Linux / macOS
+run.bat                  # Windows
+make run                 # any platform with make
 ```
 
-Open `http://localhost:8000` — the pipeline starts automatically on launch.
+Open **http://localhost:8000** to see the live feed.
 
-## Admin dashboard
+### Admin Dashboard
 
-A separate local-only admin interface runs on port 8001:
-
+In another terminal:
 ```bash
-run_admin.bat     # Windows
-make admin        # Linux / macOS / make
+./run_admin.sh           # Linux / macOS
+run_admin.bat            # Windows
 ```
 
-Open `http://127.0.0.1:8001` to:
-- Browse and edit articles
-- View collection logs and failure alerts
-- Adjust curation settings (relevance threshold, collection interval, retention)
-- Monitor database size and stats
-- Manually trigger the pipeline (auto-refreshes when done)
+Open **http://127.0.0.1:8001** to access the admin panel.
+
+### pgAdmin Database Browser
+
+Open **http://localhost:5050** to browse the database.
+- Email: `admin@sexhealthnews.local`
+- Password: `admin`
+
+## Modern Design
+
+Built for 18-35 year olds with:
+- 🎨 Vibrant cyan & coral color palette with gradients
+- ⚡ Contemporary typography and spacing
+- 📱 Mobile-first responsive design
+- 🌙 Dark mode support
+- ♿ WCAG AA accessibility compliance
+
+View the complete **[Design System](docs/DESIGN_SYSTEM.html)** for colors, typography, components, and guidelines.
+
+## Features
+
+- 🔍 **Full-text search** across all articles
+- 📰 **Categories** organized by sexual health topics
+- 🔐 **User accounts** with bookmarks and personalized newsletters
+- 🔗 **OAuth social login** (Google, LinkedIn, Microsoft)
+- 📧 **Email verification** and password reset
+- 🤖 **AI curation** using Claude Haiku
+- 📊 **Admin dashboard** for content management
+- 🌐 **Responsive web design** optimized for all devices
 
 ## API keys
 
@@ -190,3 +223,36 @@ In your DNS provider add:
 - `CNAME` record: `www` → `sexhealthnews.fly.dev.`
 
 See `docs/OAUTH_SETUP.md` → Production checklist for updating OAuth redirect URIs after deploying.
+
+---
+
+## Documentation
+
+| Document | Purpose |
+|---|---|
+| **[Design System](docs/DESIGN_SYSTEM.html)** | Colors, typography, components, and brand guidelines |
+| **[GUIDE.md](GUIDE.md)** | Complete operator guide for setup, configuration, and deployment |
+| **[CLAUDE.md](CLAUDE.md)** | Developer guide for working with the codebase |
+| **[docs/OVERVIEW.md](docs/OVERVIEW.md)** | Project architecture and tech stack |
+| **[docs/ARCHITECTURE.md](docs/ARCHITECTURE.md)** | System design and module organization |
+| **[docs/DATA_MODEL.md](docs/DATA_MODEL.md)** | Database schema and relationships |
+
+## Development
+
+```bash
+# Watch for changes and auto-reload
+make run         # main app
+make admin       # admin dashboard
+
+# Manually trigger the collection pipeline
+make trigger
+
+# Reset database (careful!)
+make reset
+```
+
+## Support & Contributing
+
+- **Issues**: Report bugs on [GitHub Issues](https://github.com/azenkwed/sexhealthnews/issues)
+- **Questions**: See [GUIDE.md](GUIDE.md) for detailed documentation
+- **Development**: See [CLAUDE.md](CLAUDE.md) for setup and coding guidelines
