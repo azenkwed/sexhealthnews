@@ -71,8 +71,8 @@ Open **http://127.0.0.1:8001** to access the admin panel.
 
 ### pgAdmin Database Browser
 
-Open **http://localhost:5050** to browse the database.
-- Email: `admin@sexhealthnews.local`
+Open **http://localhost:5050** to browse and manage the database.
+- Email: `admin@localhost`
 - Password: `admin`
 
 ## Modern Design

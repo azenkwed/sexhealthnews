@@ -257,8 +257,10 @@ SELECT title, relevance_score, severity FROM articles ORDER BY collected_at DESC
 ### Access pgAdmin UI
 
 Open http://localhost:5050 and login with:
-- Email: `admin@sexhealthnews.local`
+- Email: `admin@localhost`
 - Password: `admin`
+
+Browse and manage your database tables, run queries, and view database structure.
 
 Browse, query, and manage your database graphically.
 

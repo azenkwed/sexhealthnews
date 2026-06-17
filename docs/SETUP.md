@@ -17,11 +17,11 @@
 docker compose up -d db
 ```
 
-This starts a Postgres 15 container on port 5432. Data is persisted in a named Docker volume (`postgres_data`). Optionally start pgAdmin too for a visual DB browser:
+This starts a PostgreSQL 17 container on port 5432 (Alpine image, lightweight). Data is persisted in a named Docker volume (`postgres_data`). Optionally start pgAdmin too for a visual DB browser:
 
 ```bash
 docker compose up -d        # starts both db + pgAdmin
-open http://localhost:5050  # pgAdmin — login: admin@sexhealthnews.local / admin
+open http://localhost:5050  # pgAdmin — login: admin@localhost / admin
 ```
 
 In pgAdmin, add a server connection:
