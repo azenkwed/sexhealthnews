@@ -11,7 +11,7 @@ from fastapi.templating import Jinja2Templates
 from sqlalchemy import delete, desc, distinct, func, or_, select, text
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from backend.database.db import DB_PATH, get_db
+from backend.database.db import get_db
 from backend.database.models import Article, CollectionLog, CurationRecord, NewsletterLog, OAuthAccount, TweetLog, User
 from backend.processors.curator import CATEGORIES
 
