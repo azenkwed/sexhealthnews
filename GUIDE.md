@@ -59,7 +59,22 @@ Edit `.env` and fill in at minimum:
 ANTHROPIC_API_KEY=sk-ant-...
 ```
 
-**4. Run the application:**
+**4. Start PostgreSQL:**
+
+PostgreSQL is required and runs in Docker. Start it with:
+
+```bash
+./start-postgres.sh    # Linux / macOS
+start-postgres.bat     # Windows
+```
+
+This script will:
+- Check that Docker is installed and running
+- Start PostgreSQL and pgAdmin containers
+- Wait for PostgreSQL to be ready
+- Show you the connection details
+
+**5. Run the application:**
 
 ```bash
 make run      # recommended — auto-kills any existing process on the port first
@@ -67,7 +82,11 @@ make run      # recommended — auto-kills any existing process on the port firs
 run.bat       # Windows alternative
 ```
 
-All of these scripts automatically activate the venv if it exists.
+These scripts will:
+- Check that PostgreSQL is running and ready
+- Automatically activate the venv
+- Install/upgrade dependencies
+- Start the app with auto-reload
 
 The pipeline fires immediately on startup. Within a few minutes (depending on how many articles need curating) the feed will populate.
 
