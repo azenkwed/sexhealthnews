@@ -20,14 +20,14 @@ DB_PORT=$(echo "$DB_URL" | sed -E 's|.*:([0-9]+)/.*|\1|')
 DB_HOST="${DB_HOST:-localhost}"
 DB_PORT="${DB_PORT:-5432}"
 
-# Check if PostgreSQL is ready using Python
-check_postgres() {
-    python3 scripts/check_postgres.py "$DB_URL" 2.0 >/dev/null 2>&1
+# Check if PostgreSQL is running with simple timeout test
+is_postgres_running() {
+    timeout 1 bash -c "echo >/dev/tcp/$DB_HOST/$DB_PORT" 2>/dev/null
 }
 
 # Check if PostgreSQL is ready
 echo "[*] Checking PostgreSQL at $DB_HOST:$DB_PORT..."
-if ! check_postgres; then
+if ! is_postgres_running; then
     echo "[!] PostgreSQL is not running."
     echo "[*] Attempting to start PostgreSQL with Docker..."
 
@@ -37,25 +37,13 @@ if ! check_postgres; then
         exit 1
     fi
 
-    # Run start-postgres.sh
+    # Run start-postgres.sh (which handles verification internally)
     ./start-postgres.sh
 
-    # Verify PostgreSQL is ready after startup
-    echo ""
-    echo "[*] Verifying PostgreSQL is ready..."
-    MAX_RETRIES=30
-    i=0
-    until check_postgres; do
-        i=$((i + 1))
-        if [ $i -ge $MAX_RETRIES ]; then
-            echo "[!] PostgreSQL failed to become ready after startup."
-            exit 1
-        fi
-        echo "    Waiting for PostgreSQL... (attempt $i/$MAX_RETRIES)"
-        sleep 2
-    done
+    # Add small delay to ensure PostgreSQL is fully ready for app startup
+    sleep 2
 else
-    echo "[✓] PostgreSQL is ready."
+    echo "[✓] PostgreSQL is already running."
 fi
 
 echo ""
