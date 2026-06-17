@@ -226,7 +226,13 @@ def create_scheduler() -> AsyncIOScheduler:
     from backend.notifications.newsletter import send_newsletters
 
     interval_minutes = int(os.getenv("COLLECTION_INTERVAL_MINUTES", "60"))
+    disable_startup = os.getenv("DISABLE_PIPELINE_ON_STARTUP", "false").lower() in ("true", "1", "yes")
     scheduler = AsyncIOScheduler()
+
+    # Determine when to run the pipeline first time:
+    # - If DISABLE_PIPELINE_ON_STARTUP is true, don't run on startup (None = wait for interval)
+    # - Otherwise, run immediately on startup
+    first_run = None if disable_startup else datetime.now(timezone.utc)
 
     scheduler.add_job(
         run_pipeline,
@@ -234,7 +240,7 @@ def create_scheduler() -> AsyncIOScheduler:
         id="collection_pipeline",
         name="News Collection Pipeline",
         replace_existing=True,
-        next_run_time=datetime.now(timezone.utc),
+        next_run_time=first_run,
     )
 
     scheduler.add_job(

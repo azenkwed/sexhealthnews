@@ -9,12 +9,12 @@
 
 :root {
   /* Modern Color Palette */
-  --primary: #00d4ff;
-  --primary-dark: #0099ff;
-  --primary-darker: #0066ff;
+  --primary: #8B5CF6;
+  --primary-dark: #7C3AED;
+  --primary-darker: #6D28D9;
   --accent: #ff1a7c;
   --accent-light: #ff6b9d;
-  --purple: #7c3aed;
+  --purple: #8B5CF6;
   --green: #22a447;
 
   /* Neutral Colors */
