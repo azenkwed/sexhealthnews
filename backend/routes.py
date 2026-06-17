@@ -118,7 +118,7 @@ async def index(request: Request, page: int = Query(1, ge=1), db: AsyncSession =
         "request": request,
         "featured": [_enrich(a, _is_us(request)) for a in featured],
         "secondary": [_enrich(a, _is_us(request)) for a in secondary_list],
-        "recent": [_enrich(a, _is_us(request)) for a in recent],
+        "recent": [_enrich(a, _is_us(request)) for a in recent if a.id not in used_ids],
         "categories": CATEGORIES,
         "stats": stats,
         "page": page,
