@@ -85,7 +85,7 @@ echo [OK] PostgreSQL is ready!
 echo.
 echo 📊 Available services:
 echo    PostgreSQL:  localhost:5432 ^(user: postgres, password: postgres, db: sexhealthnews^)
-echo    pgAdmin:     http://localhost:5050 ^(user: admin@localhost, password: admin^)
+echo    pgAdmin:     http://localhost:5050 ^(user: admin@example.com, password: admin^)
 echo.
 echo [*] You can now run 'run.bat' to start the application.
 echo.

@@ -21,7 +21,7 @@ This starts a PostgreSQL 17 container on port 5432 (Alpine image, lightweight). 
 
 ```bash
 docker compose up -d        # starts both db + pgAdmin
-open http://localhost:5050  # pgAdmin — login: admin@localhost / admin
+open http://localhost:5050  # pgAdmin — login: admin@example.com / admin
 ```
 
 In pgAdmin, add a server connection:
