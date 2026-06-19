@@ -125,7 +125,8 @@ async def send_newsletters(frequency: str) -> None:
         else:
             try:
                 copy = await write_newsletter(
-                    [{"title": a.title, "category": a.category, "source_name": a.source_name}
+                    [{"title": a.title, "category": a.category, "source_name": a.source_name,
+                      "ai_summary": a.ai_summary or ""}
                      for a in articles],
                     frequency,
                 )

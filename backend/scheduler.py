@@ -1,6 +1,5 @@
-"""APScheduler pipeline — collect → curate → store → tweet."""
+"""APScheduler pipeline — collect → classify → write → store → tweet."""
 import asyncio
-import json
 import os
 from datetime import datetime, timedelta, timezone
 
@@ -15,7 +14,6 @@ from backend.database.models import Article, CollectionLog, CurationRecord, Twee
 
 
 async def _tweet_featured(session, featured_pairs: list[tuple]) -> None:
-    from backend.processors.twitter_agent import write_tweet
     from backend.social.twitter import is_enabled, post_tweet
 
     if not is_enabled():
@@ -26,7 +24,6 @@ async def _tweet_featured(session, featured_pairs: list[tuple]) -> None:
     twitter_handle = os.getenv("TWITTER_HANDLE", "sexhealthnew")
     max_per_run = int(os.getenv("TWITTER_MAX_PER_RUN", "1"))
 
-    # Highest relevance score first, capped to max_per_run
     featured_pairs = sorted(featured_pairs, key=lambda x: x[1].get("relevance_score", 0), reverse=True)[:max_per_run]
 
     for obj, art in featured_pairs:
@@ -40,22 +37,26 @@ async def _tweet_featured(session, featured_pairs: list[tuple]) -> None:
             print(f"[Twitter] Skipping (already tweeted): {obj.title[:60]}")
             continue
 
-        tweet_text = ""
+        tweet_text = art.get("tweet_text") or ""
         success = False
         error = None
-        try:
-            url = f"https://x.com/{twitter_handle}" if is_local else f"{app_url}/article/{obj.id}"
-            tweet_text = await write_tweet(art)
-            _URL_CHARS = 23  # Twitter counts every URL as 23 chars regardless of length
-            max_text = 280 - _URL_CHARS - 1  # -1 for the space before the URL
-            if len(tweet_text) > max_text:
-                tweet_text = tweet_text[:max_text - 1] + "…"
-            full_tweet = f"{tweet_text} {url}"
-            success = post_tweet(full_tweet, image_url=art.get("image_url", ""))
-            print(f"[Twitter] {'posted' if success else 'failed'}: {obj.title[:60]}")
-        except Exception as exc:
-            error = str(exc)
-            print(f"[Twitter] Error tweeting '{art.get('title', '')}': {exc}")
+
+        if not tweet_text:
+            print(f"[Twitter] No tweet text for: {obj.title[:60]}")
+            error = "no tweet text generated"
+        else:
+            try:
+                url = f"https://x.com/{twitter_handle}" if is_local else f"{app_url}/article/{obj.id}"
+                _URL_CHARS = 23
+                max_text = 280 - _URL_CHARS - 1
+                if len(tweet_text) > max_text:
+                    tweet_text = tweet_text[:max_text - 1] + "…"
+                full_tweet = f"{tweet_text} {url}"
+                success = post_tweet(full_tweet, image_url=art.get("image_url", ""))
+                print(f"[Twitter] {'posted' if success else 'failed'}: {obj.title[:60]}")
+            except Exception as exc:
+                error = str(exc)
+                print(f"[Twitter] Error tweeting '{art.get('title', '')}': {exc}")
 
         try:
             session.add(TweetLog(
@@ -77,7 +78,8 @@ async def _tweet_featured(session, featured_pairs: list[tuple]) -> None:
 
 async def run_pipeline():
     from backend.collectors import rss_collector, newsapi_collector
-    from backend.processors.curator import curate_batch
+    from backend.processors.classifier import classify_batch
+    from backend.processors.writer import write_article
 
     ran_at = datetime.now(timezone.utc)
     print(f"[Pipeline] Starting collection run at {ran_at.isoformat()}")
@@ -127,25 +129,35 @@ async def run_pipeline():
             skipped_count = len(unique_raw) - len(new_articles)
             if skipped_count:
                 print(f"[Pipeline] Skipped {skipped_count} previously stored/curated articles")
-            print(f"[Pipeline] {len(new_articles)} new articles to curate")
+            print(f"[Pipeline] {len(new_articles)} new articles to classify")
 
             if new_articles:
-                # 3. AI curation
-                accepted, evaluated_urls = await curate_batch(new_articles)
-                accepted_count = len(accepted)
-                accepted_urls = {art["url"] for art in accepted}
-                rejected_urls = evaluated_urls - accepted_urls
-                rejected_count = len(rejected_urls)
-                print(f"[Pipeline] Accepted: {accepted_count}, Rejected: {rejected_count}")
+                # 3a. Classify — score, category, severity, tags
+                classified, evaluated_urls = await classify_batch(new_articles)
+                accepted_urls_set = {art["url"] for art in classified}
+                rejected_count = len(evaluated_urls - accepted_urls_set)
+                print(f"[Pipeline] Classified: {len(classified)} accepted, {rejected_count} rejected")
 
-                # 4. Store accepted articles and remember evaluated URLs so rejected
-                # articles are not curated again on the next fetch.
+                # 3b. Write summaries + tweets for accepted articles
+                if classified:
+                    write_sem = asyncio.Semaphore(3)
+
+                    async def _write_one(art):
+                        async with write_sem:
+                            return await write_article(art)
+
+                    accepted = list(await asyncio.gather(*[_write_one(art) for art in classified]))
+                else:
+                    accepted = []
+
+                accepted_count = len(accepted)
+
+                # 4. Store accepted articles; record rejected URLs so they aren't re-evaluated
                 if evaluated_urls:
                     articles_by_url = {art["url"]: art for art in new_articles}
                     accepted_by_url = {art["url"]: art for art in accepted}
                     async with SessionLocal() as session:
                         featured_pairs: list[tuple] = []
-                        new_article_objs: list[Article] = []
                         for art in accepted:
                             is_featured = art.get("relevance_score", 0.0) >= 0.90
                             obj = Article(
@@ -167,14 +179,12 @@ async def run_pipeline():
                                 featured=is_featured,
                             )
                             session.add(obj)
-                            new_article_objs.append(obj)
                             if is_featured:
                                 featured_pairs.append((obj, art))
                         await session.flush()
-                        # search_vector is updated automatically by the DB trigger on insert
                         for url in evaluated_urls:
                             art = accepted_by_url.get(url) or articles_by_url[url]
-                            status = "accepted" if url in accepted_urls else "rejected"
+                            status = "accepted" if url in accepted_urls_set else "rejected"
                             session.add(CurationRecord(
                                 url=url,
                                 title=art.get("title", ""),
@@ -194,7 +204,7 @@ async def run_pipeline():
         error_msg = str(exc)
         print(f"[Pipeline] ERROR: {error_msg}")
 
-    # DB cleanup — prune old articles if retention is configured
+    # DB cleanup
     retention_days = int(os.getenv("ARTICLE_RETENTION_DAYS", "0"))
     if retention_days > 0:
         cutoff = datetime.now(timezone.utc) - timedelta(days=retention_days)
@@ -207,7 +217,6 @@ async def run_pipeline():
         if pruned:
             print(f"[Pipeline] Pruned {pruned} articles older than {retention_days} days.")
 
-    # Always write a log entry
     async with SessionLocal() as session:
         session.add(CollectionLog(
             ran_at=ran_at,
@@ -229,9 +238,6 @@ def create_scheduler() -> AsyncIOScheduler:
     disable_startup = os.getenv("DISABLE_PIPELINE_ON_STARTUP", "false").lower() in ("true", "1", "yes")
     scheduler = AsyncIOScheduler()
 
-    # Determine when to run the pipeline first time:
-    # - If DISABLE_PIPELINE_ON_STARTUP is true, don't run on startup (None = wait for interval)
-    # - Otherwise, run immediately on startup
     first_run = None if disable_startup else datetime.now(timezone.utc)
 
     scheduler.add_job(
@@ -242,7 +248,6 @@ def create_scheduler() -> AsyncIOScheduler:
         replace_existing=True,
         next_run_time=first_run,
     )
-
     scheduler.add_job(
         send_newsletters,
         args=["daily"],
@@ -251,7 +256,6 @@ def create_scheduler() -> AsyncIOScheduler:
         name="Daily Newsletter",
         replace_existing=True,
     )
-
     scheduler.add_job(
         send_newsletters,
         args=["weekly"],

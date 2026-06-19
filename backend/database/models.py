@@ -140,6 +140,21 @@ class NewsletterLog(Base):
     )
 
 
+class ApiUsageStat(Base):
+    __tablename__ = "api_usage_stats"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    service = Column(String(64), nullable=False)
+    date = Column(String(16), nullable=False)      # YYYY-MM-DD UTC
+    call_count = Column(Integer, default=0)
+    token_count = Column(Integer, default=0)
+    alert_sent = Column(Boolean, default=False)
+
+    __table_args__ = (
+        Index("idx_api_usage_service_date", "service", "date", unique=True),
+    )
+
+
 class TweetLog(Base):
     __tablename__ = "tweet_logs"
 

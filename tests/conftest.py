@@ -8,6 +8,7 @@ TEST_DB_URL = os.environ.get(
 
 # Set required env vars before any app import
 os.environ.setdefault("ANTHROPIC_API_KEY", "test-key-not-real")
+os.environ.setdefault("GROQ_API_KEY", "test-groq-key-not-real")
 os.environ.setdefault("JWT_SECRET_KEY", "test-jwt-secret-for-testing-only")
 os.environ["DATABASE_URL"] = TEST_DB_URL
 
@@ -188,5 +189,5 @@ def clear_module_state():
     auth_r._rl_store.clear()
     routes_r._search_rl.clear()
     routes_r._stats_cache.clear()
-    import backend.processors.curator as curator_m
-    curator_m._client = None
+    import backend.processors.classifier as classifier_m
+    classifier_m._PROVIDERS = None

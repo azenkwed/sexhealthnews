@@ -1,6 +1,6 @@
-"""Tests for the curation pipeline: dedup logic, curator scoring, and category mapping."""
+"""Tests for the classification pipeline: dedup logic, classifier scoring, and category mapping."""
 import pytest
-from unittest.mock import MagicMock, patch
+from unittest.mock import AsyncMock, MagicMock, patch
 
 
 # ---------------------------------------------------------------------------
@@ -49,36 +49,35 @@ def test_dedup_empty_batch():
 # ---------------------------------------------------------------------------
 
 def test_category_keys_map_to_display_names():
-    from backend.processors.curator import CATEGORIES
-    assert CATEGORIES["SEXUAL_HEALTH"] == "Sexual Health & Education"
-    assert CATEGORIES["SEX_WORK"] == "Sex Work & Policy"
-    assert CATEGORIES["ADULT_INDUSTRY"] == "Adult Industry"
-    assert CATEGORIES["LGBTQ_SEXUALITY"] == "LGBTQ+ & Queer Sexuality"
+    from backend.processors.classifier import CATEGORIES
+    assert CATEGORIES["SEXUAL_HEALTH"] == "Sexual Health & Wellness"
+    assert CATEGORIES["SEX_WORKERS_INDUSTRY"] == "Sex Workers & Adult Industry"
+    assert CATEGORIES["LGBTQ_RIGHTS"] == "LGBTQ+ Rights & Issues"
     assert CATEGORIES["NONE"] == "Not Relevant"
 
 
 def test_all_categories_are_strings():
-    from backend.processors.curator import CATEGORIES
+    from backend.processors.classifier import CATEGORIES
     for key, value in CATEGORIES.items():
         assert isinstance(key, str)
         assert isinstance(value, str)
 
 
 def test_category_keys_are_uppercase():
-    from backend.processors.curator import CATEGORIES
+    from backend.processors.classifier import CATEGORIES
     for key in CATEGORIES:
         assert key == key.upper()
 
 
 # ---------------------------------------------------------------------------
-# curate_article — mocked Anthropic client
+# classify_article — mocked OpenAI-compatible client
 # ---------------------------------------------------------------------------
 
 _ARTICLE = {
     "url": "https://example.com/test",
-    "title": "Governments Deploy Mass Facial Recognition",
-    "description": "A new system tracks citizens in real time.",
-    "content": "Full article content about facial recognition and surveillance.",
+    "title": "New HIV Prevention Study Shows Promising Results",
+    "description": "Researchers report high efficacy in new PrEP regimen.",
+    "content": "Full article content about HIV prevention research.",
     "source_name": "Test Source",
     "source_country": "US",
     "author": "Test Author",
@@ -87,164 +86,188 @@ _ARTICLE = {
 }
 
 
-def _mock_client(response_json: str) -> MagicMock:
-    msg = MagicMock()
-    msg.content = [MagicMock(text=response_json)]
+def _mock_providers(response_json: str) -> list:
+    """Build a mock (client, model, service) provider list with an OpenAI-compatible interface."""
+    choice = MagicMock()
+    choice.message.content = response_json
+    completion = MagicMock()
+    completion.choices = [choice]
+    completion.usage.total_tokens = 100
     client = MagicMock()
-    client.messages.create.return_value = msg
-    return client
+    client.chat.completions.create.return_value = completion
+    return [(client, "llama-3.3-70b-versatile", "groq")]
 
 
-async def test_curate_article_accepts_high_score():
-    from backend.processors.curator import curate_article
+async def test_classify_article_accepts_high_score():
+    from backend.processors.classifier import classify_article
 
-    mock_c = _mock_client(
-        '{"relevance_score": 0.87, "category": "SEXUAL_HEALTH", '
-        '"severity": "high", "tags": ["facial-recognition"], "summary": "Mass surveillance."}'
+    providers = _mock_providers(
+        '{"relevance_score": 0.87, "category": "INFECTIOUS_DISEASES", '
+        '"severity": "high", "tags": ["HIV", "PrEP"]}'
     )
-    with patch("backend.processors.curator._get_client", return_value=mock_c):
-        result, evaluated = await curate_article(_ARTICLE)
+    with patch("backend.processors.classifier._get_providers", return_value=providers), \
+         patch("backend.usage.record", new_callable=AsyncMock):
+        result, evaluated = await classify_article(_ARTICLE)
 
     assert evaluated is True
     assert result is not None
     assert result["relevance_score"] == 0.87
-    assert result["category"] == "Sexual Health & Education"
+    assert result["category"] == "Infectious Diseases & STIs"
     assert result["severity"] == "high"
+    assert "ai_summary" not in result  # classifier does not write summaries
 
 
-async def test_curate_article_rejects_low_score():
-    from backend.processors.curator import curate_article
+async def test_classify_article_rejects_low_score():
+    from backend.processors.classifier import classify_article
 
-    mock_c = _mock_client(
-        '{"relevance_score": 0.4, "category": "SEXUAL_HEALTH", '
-        '"severity": "low", "tags": [], "summary": "Not really dystopian."}'
+    providers = _mock_providers(
+        '{"relevance_score": 0.4, "category": "INFECTIOUS_DISEASES", '
+        '"severity": "low", "tags": []}'
     )
-    with patch("backend.processors.curator._get_client", return_value=mock_c):
-        result, evaluated = await curate_article(_ARTICLE)
+    with patch("backend.processors.classifier._get_providers", return_value=providers), \
+         patch("backend.usage.record", new_callable=AsyncMock):
+        result, evaluated = await classify_article(_ARTICLE)
 
     assert evaluated is True
     assert result is None
 
 
-async def test_curate_article_rejects_none_category():
-    from backend.processors.curator import curate_article
+async def test_classify_article_rejects_none_category():
+    from backend.processors.classifier import classify_article
 
-    mock_c = _mock_client(
+    providers = _mock_providers(
         '{"relevance_score": 0.92, "category": "NONE", '
-        '"severity": "low", "tags": [], "summary": "Not dystopian content."}'
+        '"severity": "low", "tags": []}'
     )
-    with patch("backend.processors.curator._get_client", return_value=mock_c):
-        result, evaluated = await curate_article(_ARTICLE)
+    with patch("backend.processors.classifier._get_providers", return_value=providers), \
+         patch("backend.usage.record", new_callable=AsyncMock):
+        result, evaluated = await classify_article(_ARTICLE)
 
     assert evaluated is True
     assert result is None
 
 
-async def test_curate_article_featured_threshold():
-    """Articles at or above 0.90 should pass through with high relevance_score."""
-    from backend.processors.curator import curate_article
+async def test_classify_article_featured_threshold():
+    """Articles at or above 0.90 should be accepted with score >= 0.90."""
+    from backend.processors.classifier import classify_article
 
-    mock_c = _mock_client(
-        '{"relevance_score": 0.95, "category": "BODY_AUTONOMY", '
-        '"severity": "critical", "tags": ["repression"], "summary": "Critical story."}'
+    providers = _mock_providers(
+        '{"relevance_score": 0.95, "category": "REPRODUCTIVE_HEALTH", '
+        '"severity": "critical", "tags": ["abortion", "policy"]}'
     )
-    with patch("backend.processors.curator._get_client", return_value=mock_c):
-        result, evaluated = await curate_article(_ARTICLE)
+    with patch("backend.processors.classifier._get_providers", return_value=providers), \
+         patch("backend.usage.record", new_callable=AsyncMock):
+        result, evaluated = await classify_article(_ARTICLE)
 
     assert evaluated is True
     assert result is not None
     assert result["relevance_score"] >= 0.90
 
 
-async def test_curate_article_handles_json_parse_error():
-    from backend.processors.curator import curate_article
+async def test_classify_article_handles_json_parse_error():
+    """A JSON parse error means all providers failed — article not evaluated, retried later."""
+    from backend.processors.classifier import classify_article
 
-    mock_c = _mock_client("not valid json at all")
-    with patch("backend.processors.curator._get_client", return_value=mock_c):
-        result, evaluated = await curate_article(_ARTICLE)
+    providers = _mock_providers("not valid json at all")
+    with patch("backend.processors.classifier._get_providers", return_value=providers), \
+         patch("backend.usage.record", new_callable=AsyncMock):
+        result, evaluated = await classify_article(_ARTICLE)
 
     assert result is None
-    assert evaluated is False  # parse error = should be retried
+    assert evaluated is False
 
 
-async def test_curate_article_handles_markdown_fences():
-    """Claude sometimes wraps JSON in ```json``` fences — curator must strip them."""
-    from backend.processors.curator import curate_article
+async def test_classify_article_falls_back_on_rate_limit():
+    """Rate limit on first provider triggers fallback to the second."""
+    from backend.processors.classifier import classify_article
+    from openai import RateLimitError
 
-    fenced = "```json\n{\"relevance_score\": 0.8, \"category\": \"CENSORSHIP_MORALITY\", \"severity\": \"medium\", \"tags\": [], \"summary\": \"Censorship found.\"}\n```"
-    mock_c = _mock_client(fenced)
-    with patch("backend.processors.curator._get_client", return_value=mock_c):
-        result, evaluated = await curate_article(_ARTICLE)
+    # Provider 1 raises rate limit; provider 2 succeeds
+    choice = MagicMock()
+    choice.message.content = '{"relevance_score": 0.8, "category": "SEXUAL_HEALTH", "severity": "medium", "tags": []}'
+    completion = MagicMock()
+    completion.choices = [choice]
+    completion.usage.total_tokens = 80
 
+    groq_client = MagicMock()
+    groq_client.chat.completions.create.side_effect = RateLimitError(
+        message="rate limit", response=MagicMock(status_code=429), body={}
+    )
+    together_client = MagicMock()
+    together_client.chat.completions.create.return_value = completion
+
+    providers = [
+        (groq_client, "llama-3.3-70b-versatile", "groq"),
+        (together_client, "meta-llama/Llama-3.3-70B-Instruct-Turbo", "together"),
+    ]
+    with patch("backend.processors.classifier._get_providers", return_value=providers), \
+         patch("backend.usage.record", new_callable=AsyncMock):
+        result, evaluated = await classify_article(_ARTICLE)
+
+    assert evaluated is True
     assert result is not None
-    assert result["category"] == "Censorship & Morality"
+    assert result["category"] == "Sexual Health & Wellness"
 
 
 # ---------------------------------------------------------------------------
-# curate_batch
+# classify_batch
 # ---------------------------------------------------------------------------
 
-async def test_curate_batch_returns_accepted_and_evaluated_urls():
-    from backend.processors.curator import curate_batch
+async def test_classify_batch_returns_accepted_and_evaluated_urls():
+    from backend.processors.classifier import classify_batch
 
     articles = [_ARTICLE.copy()]
-    mock_c = _mock_client(
-        '{"relevance_score": 0.8, "category": "SEXUAL_HEALTH", '
-        '"severity": "high", "tags": [], "summary": "Test."}'
+    providers = _mock_providers(
+        '{"relevance_score": 0.8, "category": "INFECTIOUS_DISEASES", '
+        '"severity": "high", "tags": []}'
     )
-    with patch("backend.processors.curator._get_client", return_value=mock_c):
-        accepted, evaluated_urls = await curate_batch(articles)
+    with patch("backend.processors.classifier._get_providers", return_value=providers), \
+         patch("backend.usage.record", new_callable=AsyncMock):
+        accepted, evaluated_urls = await classify_batch(articles)
 
     assert len(accepted) == 1
     assert _ARTICLE["url"] in evaluated_urls
 
 
-async def test_curate_batch_empty_input():
-    from backend.processors.curator import curate_batch
+async def test_classify_batch_empty_input():
+    from backend.processors.classifier import classify_batch
 
-    accepted, evaluated_urls = await curate_batch([])
+    accepted, evaluated_urls = await classify_batch([])
     assert accepted == []
     assert evaluated_urls == set()
 
 
-async def test_curate_batch_mixed_results():
-    from backend.processors.curator import curate_batch
+async def test_classify_batch_mixed_results():
+    from backend.processors.classifier import classify_batch
 
-    responses = iter([
-        '{"relevance_score": 0.9, "category": "SEXUAL_HEALTH", "severity": "high", "tags": [], "summary": "Accepted."}',
-        '{"relevance_score": 0.3, "category": "NONE", "severity": "low", "tags": [], "summary": "Rejected."}',
-    ])
+    side_effects = [
+        '{"relevance_score": 0.9, "category": "SEXUAL_HEALTH", "severity": "high", "tags": []}',
+        '{"relevance_score": 0.3, "category": "NONE", "severity": "low", "tags": []}',
+    ]
+    call_count = 0
 
-    def make_mock():
-        text = next(responses)
-        msg = MagicMock()
-        msg.content = [MagicMock(text=text)]
-        c = MagicMock()
-        c.messages.create.return_value = msg
-        return c
+    def _make_completion():
+        nonlocal call_count
+        choice = MagicMock()
+        choice.message.content = side_effects[call_count % len(side_effects)]
+        completion = MagicMock()
+        completion.choices = [choice]
+        completion.usage.total_tokens = 80
+        call_count += 1
+        return completion
+
+    client = MagicMock()
+    client.chat.completions.create.side_effect = lambda **kwargs: _make_completion()
+    providers = [(client, "llama-3.3-70b-versatile", "groq")]
 
     articles = [
         {**_ARTICLE, "url": "https://example.com/a"},
         {**_ARTICLE, "url": "https://example.com/b"},
     ]
 
-    side_effects = [
-        '{"relevance_score": 0.9, "category": "SEXUAL_HEALTH", "severity": "high", "tags": [], "summary": "Accepted."}',
-        '{"relevance_score": 0.3, "category": "NONE", "severity": "low", "tags": [], "summary": "Rejected."}',
-    ]
-    call_count = 0
-
-    def fake_get_client():
-        nonlocal call_count
-        msg = MagicMock()
-        msg.content = [MagicMock(text=side_effects[call_count % len(side_effects)])]
-        call_count += 1
-        mc = MagicMock()
-        mc.messages.create.return_value = msg
-        return mc
-
-    with patch("backend.processors.curator._get_client", side_effect=fake_get_client):
-        accepted, evaluated_urls = await curate_batch(articles)
+    with patch("backend.processors.classifier._get_providers", return_value=providers), \
+         patch("backend.usage.record", new_callable=AsyncMock):
+        accepted, evaluated_urls = await classify_batch(articles)
 
     assert len(evaluated_urls) == 2
-    assert len(accepted) >= 0  # at least some were processed
+    assert len(accepted) == 1  # only the 0.9-score article passes

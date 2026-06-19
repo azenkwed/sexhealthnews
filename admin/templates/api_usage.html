@@ -1,0 +1,107 @@
+{% extends "base.html" %}
+{% block title %}API Usage — Sex Health News Admin{% endblock %}
+{% block page_title %}API Usage{% endblock %}
+
+{% block content %}
+
+{% if alerts %}
+<div class="alert alert-error" style="margin-bottom:20px;">
+  <strong>⚠ Usage alert</strong> — {{ threshold_pct }}% daily limit reached for:
+  {% for a in alerts %}<em>{{ a }}</em>{% if not loop.last %}, {% endif %}{% endfor %}
+</div>
+{% endif %}
+
+<div class="stats-grid" style="margin-bottom:32px;">
+  {% for s in services %}
+  <div class="stat-card {% if s.over_threshold %}stat-card--warn{% endif %}">
+    <div class="stat-value" style="font-size:1.6rem;">{{ s.today_calls }}</div>
+    <div class="stat-label">{{ s.label }} — today's calls</div>
+    {% if s.daily_limit %}
+    <div style="margin-top:8px;">
+      <div style="background:#e5e7eb;border-radius:4px;height:6px;overflow:hidden;">
+        <div style="background:{% if s.over_threshold %}#ef4444{% else %}#10b981{% endif %};
+                    width:{{ [s.pct, 100] | min }}%;height:100%;border-radius:4px;"></div>
+      </div>
+      <div style="font-size:11px;color:#6b7280;margin-top:3px;">{{ s.pct }}% of {{ s.daily_limit }} req/day</div>
+    </div>
+    {% endif %}
+    <div style="font-size:11px;color:#9ca3af;margin-top:4px;">{{ s.limit_note }}</div>
+  </div>
+  {% endfor %}
+</div>
+
+<div style="display:grid;grid-template-columns:1fr 1fr;gap:24px;margin-bottom:32px;">
+  <div class="card">
+    <h3 style="font-size:14px;font-weight:600;margin-bottom:16px;">Today's Usage</h3>
+    <table class="table">
+      <thead>
+        <tr>
+          <th>Provider</th>
+          <th style="text-align:right;">Calls</th>
+          <th style="text-align:right;">Tokens</th>
+          <th>Limit</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for s in services %}
+        <tr {% if s.over_threshold %}style="background:#fef2f2;"{% endif %}>
+          <td><strong>{{ s.label }}</strong></td>
+          <td style="text-align:right;">{{ "{:,}".format(s.today_calls) }}</td>
+          <td style="text-align:right;">{{ "{:,}".format(s.today_tokens) }}</td>
+          <td style="font-size:11px;color:#6b7280;">{{ s.limit_note }}</td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+
+  <div class="card">
+    <h3 style="font-size:14px;font-weight:600;margin-bottom:16px;">All-Time Usage</h3>
+    <table class="table">
+      <thead>
+        <tr>
+          <th>Provider</th>
+          <th style="text-align:right;">Calls</th>
+          <th style="text-align:right;">Tokens</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for s in services %}
+        <tr>
+          <td><strong>{{ s.label }}</strong></td>
+          <td style="text-align:right;">{{ "{:,}".format(s.all_calls) }}</td>
+          <td style="text-align:right;">{{ "{:,}".format(s.all_tokens) }}</td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+
+<div class="card">
+  <h3 style="font-size:14px;font-weight:600;margin-bottom:16px;">Daily History (last 60 rows)</h3>
+  <table class="table">
+    <thead>
+      <tr>
+        <th>Date</th>
+        <th>Provider</th>
+        <th style="text-align:right;">Calls</th>
+        <th style="text-align:right;">Tokens</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for row in daily_rows %}
+      <tr>
+        <td>{{ row[0] }}</td>
+        <td>{{ row[1] }}</td>
+        <td style="text-align:right;">{{ "{:,}".format(row[2]) }}</td>
+        <td style="text-align:right;">{{ "{:,}".format(row[3]) }}</td>
+      </tr>
+      {% else %}
+      <tr><td colspan="4" style="color:#9ca3af;text-align:center;">No usage data yet.</td></tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
+
+{% endblock %}

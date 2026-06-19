@@ -12,8 +12,9 @@ from sqlalchemy import delete, desc, distinct, func, or_, select, text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from backend.database.db import get_db
-from backend.database.models import Article, CollectionLog, CurationRecord, NewsletterLog, OAuthAccount, TweetLog, User
-from backend.processors.curator import CATEGORIES
+from backend.database.models import ApiUsageStat, Article, CollectionLog, CurationRecord, NewsletterLog, OAuthAccount, TweetLog, User
+from backend.processors.classifier import CATEGORIES
+from backend.usage import SERVICE_META, SERVICE_ORDER, _DAILY_LIMITS
 
 router = APIRouter()
 templates = Jinja2Templates(directory="admin/templates")
@@ -478,12 +479,85 @@ async def logs(
     })
 
 
+# ─── API Usage ───────────────────────────────────────────────────────────────
+
+@router.get("/api-usage", response_class=HTMLResponse)
+async def api_usage(
+    request: Request,
+    db: AsyncSession = Depends(get_db),
+):
+    today = datetime.now(timezone.utc).strftime("%Y-%m-%d")
+    threshold = float(os.getenv("API_USAGE_ALERT_THRESHOLD", "0.8"))
+
+    all_time_rows = (await db.execute(
+        select(
+            ApiUsageStat.service,
+            func.sum(ApiUsageStat.call_count).label("total_calls"),
+            func.sum(ApiUsageStat.token_count).label("total_tokens"),
+        ).group_by(ApiUsageStat.service)
+    )).fetchall()
+    all_time = {row[0]: {"calls": int(row[1] or 0), "tokens": int(row[2] or 0)} for row in all_time_rows}
+
+    today_rows = (await db.execute(
+        select(ApiUsageStat).where(ApiUsageStat.date == today)
+    )).scalars().all()
+    today_stats = {row.service: {"calls": row.call_count, "tokens": row.token_count} for row in today_rows}
+
+    services = []
+    alerts = []
+    for service in SERVICE_ORDER:
+        meta = SERVICE_META.get(service, {})
+        limit = _DAILY_LIMITS.get(service)
+        td = today_stats.get(service, {"calls": 0, "tokens": 0})
+        at = all_time.get(service, {"calls": 0, "tokens": 0})
+        pct = round(td["calls"] / limit * 100) if limit and td["calls"] else 0
+        over_threshold = bool(limit and td["calls"] >= int(limit * threshold))
+        if over_threshold:
+            alerts.append(f"{meta.get('label', service)}: {td['calls']}/{limit} req today ({pct}%)")
+        services.append({
+            "key": service,
+            "label": meta.get("label", service),
+            "limit_note": meta.get("limit_note", "—"),
+            "today_calls": td["calls"],
+            "today_tokens": td["tokens"],
+            "all_calls": at["calls"],
+            "all_tokens": at["tokens"],
+            "daily_limit": limit,
+            "pct": pct,
+            "over_threshold": over_threshold,
+        })
+
+    daily_rows = (await db.execute(
+        select(
+            ApiUsageStat.date,
+            ApiUsageStat.service,
+            ApiUsageStat.call_count,
+            ApiUsageStat.token_count,
+        ).order_by(desc(ApiUsageStat.date), ApiUsageStat.service).limit(60)
+    )).fetchall()
+
+    return templates.TemplateResponse("api_usage.html", {
+        "request": request,
+        "active": "api_usage",
+        "services": services,
+        "alerts": alerts,
+        "daily_rows": daily_rows,
+        "threshold_pct": int(threshold * 100),
+    })
+
+
 # ─── Settings ────────────────────────────────────────────────────────────────
 
 _ENV_VARS = [
     # (name, required, default, description, secret)
+    # ── AI providers ──────────────────────────────────────────────────────────
+    ("ANTHROPIC_API_KEY",          True,  None,                          "Writer agent + newsletter (Claude Haiku)",         True),
+    ("GROQ_API_KEY",               True,  None,                          "Classifier primary (Llama 3.3 70B)",               True),
+    ("TOGETHER_API_KEY",           False, None,                          "Classifier fallback #1 (Llama 3.3 70B)",           True),
+    ("FIREWORKS_API_KEY",          False, None,                          "Classifier fallback #2 (Llama 3.3 70B)",           True),
+    ("API_USAGE_ALERT_THRESHOLD",  False, "0.8",                         "Fraction of daily limit that triggers alert",      False),
+    ("ALERT_EMAIL",                False, None,                          "Override recipient for usage alert emails",        False),
     # ── Core ──────────────────────────────────────────────────────────────────
-    ("ANTHROPIC_API_KEY",          True,  None,                          "AI curation + newsletter writing",                True),
     ("JWT_SECRET_KEY",             True,  "dev-secret-change-in-production", "JWT signing + session middleware",             True),
     # ── Pipeline ──────────────────────────────────────────────────────────────
     ("MIN_RELEVANCE_SCORE",        False, "0.65",                        "Articles below this score are discarded",         False),
@@ -516,7 +590,9 @@ _ENV_VARS = [
 ]
 
 _ENV_GROUPS = [
-    ("Core",     ["ANTHROPIC_API_KEY", "JWT_SECRET_KEY"]),
+    ("AI Providers", ["ANTHROPIC_API_KEY", "GROQ_API_KEY", "TOGETHER_API_KEY", "FIREWORKS_API_KEY",
+                      "API_USAGE_ALERT_THRESHOLD", "ALERT_EMAIL"]),
+    ("Core",     ["JWT_SECRET_KEY"]),
     ("Pipeline", ["MIN_RELEVANCE_SCORE", "COLLECTION_INTERVAL_MINUTES", "ALLOW_MANUAL_TRIGGER",
                   "ARTICLE_RETENTION_DAYS", "NEWSAPI_KEY", "DISABLE_NEWSAPI"]),
     ("App Server", ["APP_URL", "APP_HOST", "APP_PORT", "DEBUG", "LOG_LEVEL"]),
@@ -732,7 +808,7 @@ async def tweet_send(
     db: AsyncSession = Depends(get_db),
     article_id: int = Form(...),
 ):
-    from backend.processors.twitter_agent import write_tweet
+    from backend.processors.writer import write_tweet
     from backend.social.twitter import is_enabled, post_tweet
 
     article = (await db.execute(select(Article).where(Article.id == article_id))).scalar_one_or_none()

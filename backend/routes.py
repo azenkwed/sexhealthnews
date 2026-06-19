@@ -22,7 +22,7 @@ from backend.auth.dependencies import get_optional_user
 from backend.database.db import get_db
 from backend.database.models import Article, CollectionLog, SavedArticle
 from backend.notifications.email import send_contact_message
-from backend.processors.curator import CATEGORIES as _CAT_MAP
+from backend.processors.classifier import CATEGORIES as _CAT_MAP
 
 templates = Jinja2Templates(directory="frontend/templates")
 templates.env.globals["now"] = lambda: datetime.now(timezone.utc)
